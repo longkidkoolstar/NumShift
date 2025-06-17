@@ -1693,18 +1693,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e1b38264a76aede42a5fc21f2e27e31d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  baseSpeed: 5
-  baseJumpForce: 7
-  baseGravity: 2
-  rb: {fileID: 1613465618}
-  numberText: {fileID: 1308455355}
-  groundLayer:
-    m_Bits: 8
-  groundCheck: {fileID: 1706383148}
-  groundCheckRadius: 0.2
-  moveInput: 0
-  isGrounded: 0
-  currentValue: 0
 --- !u!50 &1613465618
 Rigidbody2D:
   serializedVersion: 4
@@ -1831,6 +1819,8 @@ MonoBehaviour:
       UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null","$version":"A"},"$version":"A"},{"name":"WeightFactor","value":{"$content":0.3,"$type":"System.Single"},"typeHandle":{"Identification":"System.Single,
       mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089","$version":"A"},"$version":"A"},{"name":"Threshold","value":{"$content":4.0,"$type":"System.Single"},"typeHandle":{"Identification":"System.Single,
       mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089","$version":"A"},"$version":"A"},{"name":"JumpWeightFactor","value":{"$content":0.75,"$type":"System.Single"},"typeHandle":{"Identification":"System.Single,
+      mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089","$version":"A"},"$version":"A"},{"name":"BaseScale","value":{"$content":1.0,"$type":"System.Single"},"typeHandle":{"Identification":"System.Single,
+      mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089","$version":"A"},"$version":"A"},{"name":"SizeFactor","value":{"$content":0.05,"$type":"System.Single"},"typeHandle":{"Identification":"System.Single,
       mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089","$version":"A"},"$version":"A"}],"$version":"A"},"$version":"A"}}'
     _objectReferences:
     - {fileID: 1706383147}
