@@ -176,9 +176,14 @@ public class NumberPlayerController : MonoBehaviour
             isJumping = false;
         }
 
-        // Squash on landing
+        // Squash on landing — intensity scales down for bigger players
         if (isGrounded && !wasGrounded)
-            squashStretchScale = new Vector3(1.3f, landSquashY, 1f);
+        {
+            float squashIntensity = GetDeformIntensity();
+            float squashX = Mathf.Lerp(1f, 1.3f,   squashIntensity);
+            float squashY = Mathf.Lerp(1f, landSquashY, squashIntensity);
+            squashStretchScale = new Vector3(squashX, squashY, 1f);
+        }
 
         // --- Input ---
         HandleHorizontalMovement();
@@ -244,8 +249,11 @@ public class NumberPlayerController : MonoBehaviour
             coyoteTimeCounter  = 0f;
             isJumping          = true;
 
-            // Stretch upward on jump
-            squashStretchScale = new Vector3(0.8f, jumpStretchY, 1f);
+            // Stretch upward on jump — intensity scales down for bigger players
+            float stretchIntensity = GetDeformIntensity();
+            float stretchX = Mathf.Lerp(1f, 0.8f,       stretchIntensity);
+            float stretchY = Mathf.Lerp(1f, jumpStretchY, stretchIntensity);
+            squashStretchScale = new Vector3(stretchX, stretchY, 1f);
         }
     }
 
@@ -321,6 +329,30 @@ public class NumberPlayerController : MonoBehaviour
             baseScale.y * deform.y,
             baseScale.z
         );
+    }
+
+    // ============================================================================
+    // SQUASH & STRETCH HELPERS
+    // ============================================================================
+
+    /// <summary>
+    /// Returns a 0–1 intensity for squash/stretch deformation.
+    /// At number=1 (smallest/default) intensity is 1 (full effect).
+    /// At number=9 (biggest) intensity is reduced so the deformation
+    /// looks proportional to the player's actual jump height.
+    /// </summary>
+    float GetDeformIntensity()
+    {
+        // numberScale goes from ~0.1 (number=-9) up to ~2.6 (number=9)
+        float scaleIncrement = 0.2f;
+        float numberScale;
+        if (currentNumber >= 0)
+            numberScale = 1f + (currentNumber - 1) * scaleIncrement;
+        else
+            numberScale = Mathf.Max(1f - (Mathf.Abs(currentNumber) - 1) * scaleIncrement, 0.1f);
+
+        // Clamp intensity so it never fully disappears (min 30% of the effect)
+        return Mathf.Clamp(1f / numberScale, 0.3f, 1f);
     }
 
     // ============================================================================
