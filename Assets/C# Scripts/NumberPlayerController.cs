@@ -140,6 +140,11 @@ public class NumberPlayerController : MonoBehaviour
     void Start()
     {
         rb2d = GetComponent<Rigidbody2D>();
+        if (rb2d != null)
+        {
+            rb2d.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+        }
+
         boxCollider = GetComponent<BoxCollider2D>();
 
         if (audioSource == null)
@@ -353,6 +358,14 @@ public class NumberPlayerController : MonoBehaviour
 
     void UpdateSquashStretch()
     {
+        // Calculate the bottom Y position BEFORE scale changes
+        float bottomOffsetLocal = 0f;
+        if (boxCollider != null)
+        {
+            bottomOffsetLocal = boxCollider.offset.y - (boxCollider.size.y / 2f);
+        }
+        float previousBottomWorldY = transform.position.y + bottomOffsetLocal * transform.localScale.y;
+
         // Lerp squash/stretch back toward neutral
         squashStretchScale = Vector3.Lerp(squashStretchScale, Vector3.one, squashStretchSpeed * Time.deltaTime);
 
@@ -391,6 +404,15 @@ public class NumberPlayerController : MonoBehaviour
             baseScale.y * deform.y,
             baseScale.z
         );
+
+        // Shift position so that the bottom edge of the collider remains firmly anchored.
+        // This completely prevents the player from expanding into the floor and falling through!
+        if (boxCollider != null)
+        {
+            float newBottomWorldY = transform.position.y + bottomOffsetLocal * transform.localScale.y;
+            float shiftUpAmount = previousBottomWorldY - newBottomWorldY;
+            transform.position += new Vector3(0, shiftUpAmount, 0);
+        }
     }
 
     // ============================================================================
