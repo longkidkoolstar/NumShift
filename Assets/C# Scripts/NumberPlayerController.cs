@@ -274,7 +274,7 @@ public class NumberPlayerController : MonoBehaviour
         if (jumpBufferCounter > 0f && coyoteTimeCounter > 0f)
         {
             rb2d.velocity = new Vector2(rb2d.velocity.x, 0f);
-            rb2d.AddForce(Vector2.up * adjustedJumpForce, ForceMode2D.Impulse);
+            rb2d.AddForce(Vector2.up * (adjustedJumpForce * rb2d.mass), ForceMode2D.Impulse);
 
             jumpBufferCounter  = 0f;
             coyoteTimeCounter  = 0f;
