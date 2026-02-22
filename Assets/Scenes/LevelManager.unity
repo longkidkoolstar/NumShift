@@ -155,6 +155,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 27d0a515b6b962340828f74f971dd5c4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  yOffset: 2
   smoothTime: 0.3
   targetAspectRatio: 1.7777778
   updateRatioContinuously: 1

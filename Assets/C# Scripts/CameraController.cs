@@ -3,6 +3,8 @@ using UnityEngine;
 public class CameraController : MonoBehaviour
 {
     [Header("Camera Settings")]
+    [Tooltip("Vertical offset applied to the camera target position.")]
+    public float yOffset = 0f;
     [Tooltip("How fast the camera slides to the new position.")]
     public float smoothTime = 0.3f;
     
@@ -24,8 +26,9 @@ public class CameraController : MonoBehaviour
 
     void Start()
     {
-        // When the game starts, lock onto wherever the camera already is
-        targetPosition = transform.position;
+        // When the game starts, lock onto wherever the camera already is, applying the yOffset
+        targetPosition = new Vector3(transform.position.x, transform.position.y + yOffset, transform.position.z);
+        transform.position = targetPosition;
         cam = GetComponent<Camera>();
         if (cam == null) cam = Camera.main; // Fallback in case this script isn't on the Camera itself!
 
@@ -57,7 +60,7 @@ public class CameraController : MonoBehaviour
     public void SlideToNewSection(Vector3 newCenterPoint)
     {
         // Keep the camera's original Z depth so we don't accidentally zoom inside the 2D plane
-        targetPosition = new Vector3(newCenterPoint.x, newCenterPoint.y, transform.position.z);
+        targetPosition = new Vector3(newCenterPoint.x, newCenterPoint.y + yOffset, transform.position.z);
     }
 
     private void EnforceAspectRatio()
