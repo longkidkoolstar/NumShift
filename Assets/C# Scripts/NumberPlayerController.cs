@@ -73,6 +73,25 @@ public class NumberPlayerController : MonoBehaviour
     [SerializeField] private TextMeshPro numberDisplay;
     [SerializeField] private float baseFontSize = 6f;
 
+    [Header("Audio")]
+    [Tooltip("Sound played every time the player jumps")]
+    [SerializeField] private AudioClip jumpSFX;
+    [Tooltip("AudioSource used to play SFX (auto-fetched if left empty)")]
+    [SerializeField] private AudioSource audioSource;
+
+    [Tooltip("Pitch when jumping at minimum force (large positive number)")]
+    [SerializeField] private float jumpPitchMin = 0.85f;
+    [Tooltip("Pitch when jumping at maximum force (large negative number)")]
+    [SerializeField] private float jumpPitchMax = 1.25f;
+    [Tooltip("Extra random pitch jitter applied on top of the force-based pitch (±half this value)")]
+    [SerializeField] private float jumpPitchJitter = 0.07f;
+    [Tooltip("Volume when jumping at minimum force")]
+    [SerializeField] private float jumpVolumeMin = 0.55f;
+    [Tooltip("Volume when jumping at maximum force")]
+    [SerializeField] private float jumpVolumeMax = 1.0f;
+    [Tooltip("Minimum seconds between SFX plays — prevents rapid-fire stacking")]
+    [SerializeField] private float jumpSFXCooldown = 0.08f;
+
     // ============================================================================
     // PRIVATE FIELDS
     // ============================================================================
@@ -104,6 +123,9 @@ public class NumberPlayerController : MonoBehaviour
     private Vector3 squashStretchScale = Vector3.one;   // Relative deformation (multiplied on top of base scale)
     private float shiftPopMultiplier = 1f;              // Extra pop on number shift
 
+    // Audio
+    private float sfxCooldownCounter = 0f;
+
     // ============================================================================
     // CONSTANTS
     // ============================================================================
@@ -120,11 +142,14 @@ public class NumberPlayerController : MonoBehaviour
         rb2d = GetComponent<Rigidbody2D>();
         boxCollider = GetComponent<BoxCollider2D>();
 
+        if (audioSource == null)
+            audioSource = GetComponent<AudioSource>();
+
         if (boxCollider != null)
         {
             initialColliderSize = boxCollider.size;
             // Squeeze tighter on Y than X for a better fit
-            boxCollider.size = new Vector2(initialColliderSize.x * 0.7f, initialColliderSize.y * 0.7f);
+            boxCollider.size = new Vector2(initialColliderSize.x * 0.48f, initialColliderSize.y * 0.48f);
         }
 
         if (numberDisplay == null)
@@ -163,7 +188,8 @@ public class NumberPlayerController : MonoBehaviour
         }
 
         // --- Timers ---
-        coyoteTimeCounter -= Time.deltaTime;
+        sfxCooldownCounter -= Time.deltaTime;
+        coyoteTimeCounter  -= Time.deltaTime;
         jumpBufferCounter -= Time.deltaTime;
 
         // --- Ground ---
@@ -249,12 +275,48 @@ public class NumberPlayerController : MonoBehaviour
             coyoteTimeCounter  = 0f;
             isJumping          = true;
 
+            // Play jump SFX with force-based pitch/volume variation
+            PlayJumpSFX();
+
             // Stretch upward on jump — intensity scales down for bigger players
             float stretchIntensity = GetDeformIntensity();
             float stretchX = Mathf.Lerp(1f, 0.8f,       stretchIntensity);
             float stretchY = Mathf.Lerp(1f, jumpStretchY, stretchIntensity);
             squashStretchScale = new Vector3(stretchX, stretchY, 1f);
         }
+    }
+
+    // ============================================================================
+    // AUDIO
+    // ============================================================================
+
+    /// <summary>
+    /// Plays the jump SFX with pitch and volume adjusted to match jump strength.
+    /// - Stronger jumps (large negative numbers) → higher pitch, louder
+    /// - Weaker jumps (large positive numbers)   → lower pitch, softer
+    /// - A small random jitter keeps consecutive jumps from sounding identical.
+    /// - A cooldown prevents clip stacking when jump-buffering fires rapidly.
+    /// </summary>
+    void PlayJumpSFX()
+    {
+        if (audioSource == null || jumpSFX == null) return;
+        if (sfxCooldownCounter > 0f) return;
+
+        // Normalise jump force: 0 = weakest possible, 1 = strongest possible
+        // adjustedJumpForce is clamped to >= 1, theoretical max ≈ baseJumpForce + (9-1)*jumpBonus
+        float maxForce = baseJumpForce + 8f * 1.1f;   // matches the formula in UpdatePlayerStats
+        float forceT   = Mathf.InverseLerp(1f, maxForce, adjustedJumpForce);
+
+        // Pitch: stronger jump → higher pitch
+        float basePitch = Mathf.Lerp(jumpPitchMin, jumpPitchMax, forceT);
+        float jitter    = Random.Range(-jumpPitchJitter * 0.5f, jumpPitchJitter * 0.5f);
+        audioSource.pitch = Mathf.Clamp(basePitch + jitter, 0.5f, 3f);
+
+        // Volume: stronger jump → louder
+        float volume = Mathf.Lerp(jumpVolumeMin, jumpVolumeMax, forceT);
+
+        audioSource.PlayOneShot(jumpSFX, volume);
+        sfxCooldownCounter = jumpSFXCooldown;
     }
 
     void HandleGravity()
