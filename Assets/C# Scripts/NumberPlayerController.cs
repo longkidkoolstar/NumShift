@@ -104,6 +104,8 @@ public class NumberPlayerController : MonoBehaviour
     /// </summary>
     private BoxCollider2D boxCollider;
     private Vector2 initialColliderSize;
+    private Vector2 initialColliderOffset;
+    private float baseGroundCheckRadius;
     private bool isGrounded;
     private bool wasGrounded;
     private float moveInput;
@@ -153,9 +155,12 @@ public class NumberPlayerController : MonoBehaviour
         if (boxCollider != null)
         {
             initialColliderSize = boxCollider.size;
+            initialColliderOffset = boxCollider.offset;
             // Squeeze tighter on Y than X for a better fit
             boxCollider.size = new Vector2(initialColliderSize.x * 0.48f, initialColliderSize.y * 0.48f);
         }
+
+        baseGroundCheckRadius = groundCheckRadius;
 
         if (numberDisplay == null)
             numberDisplay = GetComponentInChildren<TextMeshPro>();
@@ -257,9 +262,26 @@ public class NumberPlayerController : MonoBehaviour
 
     void CheckGroundContact()
     {
+        // Dynamically reposition the ground check to the actual bottom of the collider.
+        // This ensures it always sits just below the player's feet, even when scaled up.
+        if (groundCheckTransform != null && boxCollider != null)
+        {
+            float colliderBottomLocal = boxCollider.offset.y - (boxCollider.size.y / 2f);
+            // Position the ground check slightly below the collider bottom edge
+            groundCheckTransform.localPosition = new Vector3(
+                groundCheckTransform.localPosition.x,
+                colliderBottomLocal - 0.02f,
+                groundCheckTransform.localPosition.z
+            );
+        }
+
+        // Scale the ground check radius with the player so it works at all sizes
+        float currentScaleY = Mathf.Abs(transform.localScale.y);
+        float scaledRadius = baseGroundCheckRadius * Mathf.Max(currentScaleY, 0.5f);
+
         isGrounded = Physics2D.OverlapCircle(
             groundCheckTransform.position,
-            groundCheckRadius,
+            scaledRadius,
             groundLayer
         ) != null;
     }
@@ -494,8 +516,39 @@ public class NumberPlayerController : MonoBehaviour
         float newMass        = initialMass * (1f + (absNumber - 1) * massMultiplier);
         rb2d.mass = newMass;
 
-        // NOTE: BoxCollider2D is automatically scaled by transform.localScale,
-        // so no explicit collider size adjustment is needed here.
+        // --- Anchor the collider so the player grows UPWARD from the feet ---
+        // Compute the scale for the new number (same formula as UpdateSquashStretch)
+        float scaleIncrement = 0.2f;
+        float numberScale;
+        if (currentNumber >= 0)
+            numberScale = 1f + (currentNumber - 1) * scaleIncrement;
+        else
+            numberScale = Mathf.Max(1f - (Mathf.Abs(currentNumber) - 1) * scaleIncrement, 0.1f);
+
+        if (boxCollider != null)
+        {
+            // Capture where the bottom of the collider is right now in world space
+            float oldBottomLocal = boxCollider.offset.y - (boxCollider.size.y / 2f);
+            float oldBottomWorld = transform.position.y + oldBottomLocal * transform.localScale.y;
+
+            // Compute the new Y scale
+            float newScaleY = initialScale.y * numberScale;
+
+            // Adjust the collider offset so the bottom edge stays at the same local-space
+            // relative position. The collider center shifts upward as the player grows.
+            float halfHeight = boxCollider.size.y / 2f;
+            float desiredBottomLocal = oldBottomLocal;  // Keep feet at the same local-space position
+            float newOffsetY = desiredBottomLocal + halfHeight;
+            boxCollider.offset = new Vector2(boxCollider.offset.x, newOffsetY);
+
+            // Shift the player's world position upward so the feet stay on the ground
+            float newBottomWorld = transform.position.y + desiredBottomLocal * newScaleY;
+            float shiftUp = oldBottomWorld - newBottomWorld;
+            if (Mathf.Abs(shiftUp) > 0.001f)
+            {
+                transform.position += new Vector3(0f, shiftUp, 0f);
+            }
+        }
 
         // Visual update
         UpdateColor();
@@ -551,8 +604,10 @@ public class NumberPlayerController : MonoBehaviour
     {
         if (groundCheckTransform != null)
         {
+            float currentScaleY = Mathf.Abs(transform.localScale.y);
+            float scaledRadius = baseGroundCheckRadius * Mathf.Max(currentScaleY, 0.5f);
             Gizmos.color = isGrounded ? Color.green : Color.red;
-            Gizmos.DrawWireSphere(groundCheckTransform.position, groundCheckRadius);
+            Gizmos.DrawWireSphere(groundCheckTransform.position, scaledRadius);
         }
     }
 }
