@@ -10,17 +10,22 @@ using TMPro;
 /// currentNumber value that changes during gameplay. Higher numbers make the player larger 
 /// and heavier (slower jump, faster movement), while lower numbers make them smaller and lighter.
 ///
-/// Movement Improvements:
-/// - Acceleration / deceleration for smooth, responsive movement
+/// Movement Feel:
+/// - Acceleration / deceleration with separate air & ground rates
+/// - Turn-around boost: extra deceleration when reversing direction (skid feel)
 /// - Coyote time: brief window to jump after walking off a ledge
 /// - Jump buffering: queued jump if Space is pressed slightly before landing
 /// - Variable jump height: hold Space to jump higher, release early to cut
 /// - Extra fall gravity: snappier, less floaty jump arc
+/// - Apex hang: reduced gravity near the peak of the jump for satisfying hang-time
+/// - Apex speed bonus: extra horizontal speed at the top of the arc for better air control
 ///
-/// Squash & Stretch:
-/// - Stretch upward when jumping
-/// - Squash on landing
-/// - Slight horizontal stretch when running at speed
+/// Juice & Feedback:
+/// - Squash & stretch on jump, land, and run (volume-preserving)
+/// - Velocity-based landing squash: harder landings = bigger squash
+/// - Visual lean: subtle tilt in the direction of movement
+/// - Landing SFX with impact-based pitch/volume variation
+/// - Dust particle hooks for landing and running
 /// - Brief pop-out scale when the number shifts
 /// </summary>
 public class NumberPlayerController : MonoBehaviour
@@ -38,6 +43,10 @@ public class NumberPlayerController : MonoBehaviour
     [SerializeField] private float acceleration = 60f;
     [Tooltip("How fast the player decelerates when no input (higher = snappier stop)")]
     [SerializeField] private float deceleration = 80f;
+    [Tooltip("Acceleration multiplier when in the air (lower = more commitment)")]
+    [SerializeField] private float airAccelerationMultiplier = 0.65f;
+    [Tooltip("Extra deceleration when actively turning around (skid feel)")]
+    [SerializeField] private float turnAroundMultiplier = 2.5f;
 
     [Header("Jumping")]
     [SerializeField] private float baseJumpForce = 5f;
@@ -49,6 +58,12 @@ public class NumberPlayerController : MonoBehaviour
     [SerializeField] private float coyoteTime = 0.12f;
     [Tooltip("Seconds before landing that a jump press is remembered")]
     [SerializeField] private float jumpBufferTime = 0.15f;
+    [Tooltip("Velocity threshold for apex hang (near the peak of the jump)")]
+    [SerializeField] private float apexThreshold = 1.5f;
+    [Tooltip("Gravity multiplier at the apex for a floaty hang-time feel")]
+    [SerializeField] private float apexGravityMultiplier = 0.4f;
+    [Tooltip("Extra horizontal speed bonus at the apex for better air control")]
+    [SerializeField] private float apexSpeedBonus = 1.5f;
 
     [Header("Ground Detection")]
     [SerializeField] private LayerMask groundLayer;
@@ -68,6 +83,14 @@ public class NumberPlayerController : MonoBehaviour
     [SerializeField] private float shiftPopScale = 1.3f;
     [Tooltip("How fast the shift pop lerps back")]
     [SerializeField] private float shiftPopSpeed = 10f;
+    [Tooltip("Max lean angle (degrees) when running at full speed")]
+    [SerializeField] private float maxLeanAngle = 5f;
+    [Tooltip("How fast the lean angle interpolates")]
+    [SerializeField] private float leanSpeed = 12f;
+    [Tooltip("Minimum fall speed to trigger a velocity-based landing squash")]
+    [SerializeField] private float minLandVelocity = 2f;
+    [Tooltip("Fall speed at which landing squash is at maximum intensity")]
+    [SerializeField] private float maxLandVelocity = 15f;
 
     [Header("Display")]
     [SerializeField] private TextMeshPro numberDisplay;
@@ -76,6 +99,8 @@ public class NumberPlayerController : MonoBehaviour
     [Header("Audio")]
     [Tooltip("Sound played every time the player jumps")]
     [SerializeField] private AudioClip jumpSFX;
+    [Tooltip("Sound played when the player lands")]
+    [SerializeField] private AudioClip landSFX;
     [Tooltip("AudioSource used to play SFX (auto-fetched if left empty)")]
     [SerializeField] private AudioSource audioSource;
 
@@ -91,6 +116,14 @@ public class NumberPlayerController : MonoBehaviour
     [SerializeField] private float jumpVolumeMax = 1.0f;
     [Tooltip("Minimum seconds between SFX plays — prevents rapid-fire stacking")]
     [SerializeField] private float jumpSFXCooldown = 0.08f;
+    [Tooltip("Minimum landing velocity to play the landing SFX")]
+    [SerializeField] private float landSFXMinVelocity = 3f;
+
+    [Header("Particles")]
+    [Tooltip("Optional particle system spawned at feet on landing")]
+    [SerializeField] private ParticleSystem landDustParticles;
+    [Tooltip("Optional particle system spawned at feet when running")]
+    [SerializeField] private ParticleSystem runDustParticles;
 
     // ============================================================================
     // PRIVATE FIELDS
@@ -121,9 +154,14 @@ public class NumberPlayerController : MonoBehaviour
     private float jumpBufferCounter;
     private bool isJumping;
 
+    // Apex detection
+    private bool isAtApex;
+
     // Squash & stretch
     private Vector3 squashStretchScale = Vector3.one;   // Relative deformation (multiplied on top of base scale)
     private float shiftPopMultiplier = 1f;              // Extra pop on number shift
+    private float currentLeanAngle = 0f;                // Current visual tilt
+    private float lastFallSpeed = 0f;                   // Track fall speed for landing impact
 
     // Audio
     private float sfxCooldownCounter = 0f;
@@ -202,6 +240,10 @@ public class NumberPlayerController : MonoBehaviour
         coyoteTimeCounter  -= Time.deltaTime;
         jumpBufferCounter -= Time.deltaTime;
 
+        // --- Track fall speed (before ground check resets velocity) ---
+        if (rb2d.velocity.y < 0f)
+            lastFallSpeed = Mathf.Abs(rb2d.velocity.y);
+
         // --- Ground ---
         wasGrounded = isGrounded;
         CheckGroundContact();
@@ -212,13 +254,30 @@ public class NumberPlayerController : MonoBehaviour
             isJumping = false;
         }
 
-        // Squash on landing — intensity scales down for bigger players
+        // Velocity-based squash on landing — harder landings = bigger squash
         if (isGrounded && !wasGrounded)
         {
-            float squashIntensity = GetDeformIntensity();
+            float impactT = Mathf.InverseLerp(minLandVelocity, maxLandVelocity, lastFallSpeed);
+            float squashIntensity = GetDeformIntensity() * Mathf.Lerp(0.4f, 1f, impactT);
             float squashX = Mathf.Lerp(1f, 1.3f,   squashIntensity);
             float squashY = Mathf.Lerp(1f, landSquashY, squashIntensity);
             squashStretchScale = new Vector3(squashX, squashY, 1f);
+
+            // Landing SFX — louder and lower pitch for harder impacts
+            PlayLandSFX(impactT);
+
+            // Landing dust particles
+            if (landDustParticles != null && impactT > 0.15f)
+            {
+                landDustParticles.transform.position = groundCheckTransform.position;
+                var emission = landDustParticles.emission;
+                var burst = emission.GetBurst(0);
+                burst.count = Mathf.Lerp(3, 12, impactT);
+                emission.SetBurst(0, burst);
+                landDustParticles.Play();
+            }
+
+            lastFallSpeed = 0f;
         }
 
         // --- Input ---
@@ -230,7 +289,12 @@ public class NumberPlayerController : MonoBehaviour
 
         HandleJump();
         HandleGravity();
-        FreezeRotation();
+
+        // --- Run dust particles ---
+        HandleRunDust();
+
+        // --- Visual lean ---
+        UpdateLean();
 
         // --- Squash & stretch animation ---
         UpdateSquashStretch();
@@ -244,11 +308,34 @@ public class NumberPlayerController : MonoBehaviour
     {
         moveInput = Input.GetAxisRaw("Horizontal");   // Raw for crisper feel
 
-        float targetVelocityX = moveInput * adjustedSpeed;
+        // Apex speed bonus — extra horizontal control near the top of a jump
+        float apexBonus = isAtApex ? apexSpeedBonus : 0f;
+        float targetVelocityX = moveInput * (adjustedSpeed + apexBonus);
         float currentVelocityX = rb2d.velocity.x;
 
+        // Detect if the player is actively turning around (input opposes velocity)
+        bool isTurningAround = (Mathf.Abs(moveInput) > 0.01f) &&
+                               (Mathf.Sign(moveInput) != Mathf.Sign(currentVelocityX)) &&
+                               (Mathf.Abs(currentVelocityX) > 0.5f);
+
         // Choose acceleration or deceleration rate
-        float rate = (Mathf.Abs(moveInput) > 0.01f) ? acceleration : deceleration;
+        float rate;
+        if (Mathf.Abs(moveInput) < 0.01f)
+        {
+            rate = deceleration;                         // No input → decelerate
+        }
+        else if (isTurningAround)
+        {
+            rate = deceleration * turnAroundMultiplier;  // Turning → fast skid-stop
+        }
+        else
+        {
+            rate = acceleration;                         // Normal acceleration
+        }
+
+        // Reduce air control so jumps feel more committed
+        if (!isGrounded)
+            rate *= airAccelerationMultiplier;
 
         // Smoothly move current velocity toward target
         float newVelocityX = Mathf.MoveTowards(currentVelocityX, targetVelocityX, rate * Time.deltaTime);
@@ -346,9 +433,37 @@ public class NumberPlayerController : MonoBehaviour
         sfxCooldownCounter = jumpSFXCooldown;
     }
 
+    /// <summary>
+    /// Plays the landing SFX with intensity based on fall speed.
+    /// Harder landings produce a louder, lower-pitched thud.
+    /// </summary>
+    void PlayLandSFX(float impactT)
+    {
+        if (audioSource == null || landSFX == null) return;
+        if (lastFallSpeed < landSFXMinVelocity) return;
+        if (sfxCooldownCounter > 0f) return;
+
+        // Harder impact → lower pitch, louder volume
+        float pitch = Mathf.Lerp(1.15f, 0.80f, impactT);
+        float jitter = Random.Range(-0.04f, 0.04f);
+        audioSource.pitch = Mathf.Clamp(pitch + jitter, 0.5f, 2f);
+
+        float volume = Mathf.Lerp(0.3f, 0.9f, impactT);
+        audioSource.PlayOneShot(landSFX, volume);
+        sfxCooldownCounter = jumpSFXCooldown;
+    }
+
     void HandleGravity()
     {
-        if (rb2d.velocity.y < 0f)
+        // Detect apex: near the peak of the jump arc
+        isAtApex = isJumping && Mathf.Abs(rb2d.velocity.y) < apexThreshold && !isGrounded;
+
+        if (isAtApex)
+        {
+            // Apex hang — reduced gravity for satisfying hang-time
+            rb2d.gravityScale = defaultGravityScale * apexGravityMultiplier;
+        }
+        else if (rb2d.velocity.y < 0f)
         {
             // Falling — apply extra gravity for a snappier arc
             rb2d.gravityScale = defaultGravityScale * fallGravityMultiplier;
@@ -365,13 +480,47 @@ public class NumberPlayerController : MonoBehaviour
     }
 
     // ============================================================================
-    // ROTATION CONTROL
+    // VISUAL LEAN & RUN DUST
     // ============================================================================
 
-    void FreezeRotation()
+    /// <summary>
+    /// Applies a subtle visual tilt in the direction of movement.
+    /// Makes the character feel dynamic and alive when running.
+    /// The lean is purely cosmetic — physics rotation is still locked.
+    /// </summary>
+    void UpdateLean()
     {
-        Vector3 rot = transform.eulerAngles;
-        transform.eulerAngles = new Vector3(rot.x, rot.y, 0f);
+        if (!isGrounded)
+        {
+            // Smoothly return to upright in the air
+            currentLeanAngle = Mathf.Lerp(currentLeanAngle, 0f, leanSpeed * Time.deltaTime);
+        }
+        else
+        {
+            // Lean into the direction of velocity
+            float speedRatio = (adjustedSpeed > 0f) ? rb2d.velocity.x / adjustedSpeed : 0f;
+            float targetLean = -speedRatio * maxLeanAngle; // Negative because Unity Z rotation is counter-clockwise
+            currentLeanAngle = Mathf.Lerp(currentLeanAngle, targetLean, leanSpeed * Time.deltaTime);
+        }
+
+        // Apply lean — keep physics rotation locked but allow visual tilt
+        rb2d.freezeRotation = true;
+        transform.eulerAngles = new Vector3(0f, 0f, currentLeanAngle);
+    }
+
+    /// <summary>
+    /// Emits run dust particles when the player is moving fast on the ground.
+    /// </summary>
+    void HandleRunDust()
+    {
+        if (runDustParticles == null) return;
+
+        bool shouldEmit = isGrounded && Mathf.Abs(rb2d.velocity.x) > adjustedSpeed * 0.5f;
+
+        if (shouldEmit && !runDustParticles.isPlaying)
+            runDustParticles.Play();
+        else if (!shouldEmit && runDustParticles.isPlaying)
+            runDustParticles.Stop();
     }
 
     // ============================================================================

@@ -77,6 +77,11 @@ public class LevelManager : MonoBehaviour
     {
         if (player == null) return;
 
+        if (Input.GetKeyDown(KeyCode.R))
+        {
+            RestartCurrentLevel();
+        }
+
         // 1. Check if we need to spawn a new level chunk ahead of the player.
         // We spawn if the player is getting close to the nextSpawnX limit.
         if (player.position.x > (nextSpawnX - spawnTriggerDistance))
@@ -92,20 +97,109 @@ public class LevelManager : MonoBehaviour
 
         if (calculatedSectionIndex > currentPlayerSectionIndex)
         {
+            int previousSectionIndex = currentPlayerSectionIndex;
             currentPlayerSectionIndex = calculatedSectionIndex;
             
             // The center point of the new section is its index * width
             float newCenterX = currentPlayerSectionIndex * levelWidth;
 
-            // Optional: You could maintain the current Y, or use a specific Y if your levels change height
-            Vector3 newCenterPoint = new Vector3(newCenterX, cameraController.transform.position.y, 0f);
+            // Pass y=0 so CameraController applies its yOffset only once
+            // (using camera's current Y would stack the offset each time)
+            Vector3 newCenterPoint = new Vector3(newCenterX, 0f, 0f);
 
             if (cameraController != null)
             {
                 cameraController.SlideToNewSection(newCenterPoint);
                 Debug.Log($"[LevelManager] Player entered section {currentPlayerSectionIndex}. Camera sliding to {newCenterX}.");
             }
+
+            // Disable the BgMusic component on the old level
+            DisableBgMusicOnSection(previousSectionIndex);
         }
+    }
+
+    /// <summary>
+    /// Restarts the current level by moving the player back to its PlayerSpawn.
+    /// </summary>
+    public void RestartCurrentLevel()
+    {
+        if (player == null) return;
+
+        float sectionCenterX = currentPlayerSectionIndex * levelWidth;
+
+        foreach (GameObject level in activeLevels)
+        {
+            if (level == null) continue;
+
+            // Check if this level belongs to the calculated section
+            if (Mathf.Abs(level.transform.position.x - sectionCenterX) < levelWidth * 0.5f)
+            {
+                Transform spawnPoint = FindChildRecursive(level.transform, "PlayerSpawn");
+                if (spawnPoint != null)
+                {
+                    player.position = spawnPoint.position;
+                    // Reset velocity to prevent carrying momentum
+                    Rigidbody2D rb = player.GetComponent<Rigidbody2D>();
+                    if (rb != null)
+                    {
+                        rb.velocity = Vector2.zero;
+                    }
+                    Debug.Log($"[LevelManager] Player respawned at PlayerSpawn for section {currentPlayerSectionIndex}.");
+                }
+                else
+                {
+                    Debug.LogWarning($"[LevelManager] No 'PlayerSpawn' found in section {currentPlayerSectionIndex}.");
+                }
+                break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Disables the "BgMusic" component on the level in the given section.
+    /// </summary>
+    private void DisableBgMusicOnSection(int sectionIndex)
+    {
+        float sectionCenterX = sectionIndex * levelWidth;
+
+        foreach (GameObject level in activeLevels)
+        {
+            if (level == null) continue;
+
+            // Check if this level belongs to the given section
+            if (Mathf.Abs(level.transform.position.x - sectionCenterX) < levelWidth * 0.5f)
+            {
+                // Search recursively for the BgMusic component (MonoBehaviour or AudioSource)
+                Transform bgMusicTransform = FindChildRecursive(level.transform, "BgMusic");
+                if (bgMusicTransform != null)
+                {
+                    // Disable all Behaviours on the BgMusic object
+                    foreach (var behaviour in bgMusicTransform.GetComponents<Behaviour>())
+                    {
+                        behaviour.enabled = false;
+                    }
+                    Debug.Log($"[LevelManager] Disabled BgMusic on section {sectionIndex}.");
+                }
+                break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Recursively searches for a child transform by name.
+    /// </summary>
+    private Transform FindChildRecursive(Transform parent, string childName)
+    {
+        foreach (Transform child in parent)
+        {
+            if (child.name == childName)
+                return child;
+
+            Transform found = FindChildRecursive(child, childName);
+            if (found != null)
+                return found;
+        }
+        return null;
     }
 
     /// <summary>
@@ -114,6 +208,8 @@ public class LevelManager : MonoBehaviour
     private void SpawnNextLevel()
     {
         if (levelPrefabs.Length == 0) return;
+
+        bool isFirstLevel = (activeLevels.Count == 0);
 
         // Pick a random level prefab
         int randomIndex = Random.Range(0, levelPrefabs.Length);
@@ -125,6 +221,18 @@ public class LevelManager : MonoBehaviour
 
         // Track it
         activeLevels.Enqueue(newLevel);
+
+        if (isFirstLevel && player != null)
+        {
+            Transform spawnPoint = FindChildRecursive(newLevel.transform, "PlayerSpawn");
+            if (spawnPoint != null)
+            {
+                player.position = spawnPoint.position;
+                Rigidbody2D rb = player.GetComponent<Rigidbody2D>();
+                if (rb != null) rb.velocity = Vector2.zero;
+                Debug.Log($"[LevelManager] Player spawned at first level's PlayerSpawn.");
+            }
+        }
 
         // Advance the spawn point for the next one
         nextSpawnX += levelWidth;
